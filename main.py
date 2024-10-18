@@ -6,7 +6,7 @@ from tkinter import messagebox
 class BookApp:
     def __init__(self, root):
         self.conn = sqlite3.connect("books.db")
-        self.create_table()
+        self.create_tables()
 
         self.root = root
         self.root.title("Book Library")
@@ -50,18 +50,39 @@ class BookApp:
         self.result_text = tk.Text(root, height=10, width=50)
         self.result_text.grid(row=7, column=0, columnspan=2)
 
-    # Создание таблицы, если её нет
-    def create_table(self):
+    # Создание таблиц в базе данных
+    def create_tables(self):
         cursor = self.conn.cursor()
+
+        # Таблица авторов
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS books (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT,
-                author TEXT,
-                genre TEXT,
-                year TEXT
+            CREATE TABLE IF NOT EXISTS authors (
+                author_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL
             )
         ''')
+
+        # Таблица жанров
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS genres (
+                genre_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                genre_name TEXT NOT NULL
+            )
+        ''')
+
+        # Таблица книг
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS books (
+                book_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                year TEXT NOT NULL,
+                author_id INTEGER,
+                genre_id INTEGER,
+                FOREIGN KEY (author_id) REFERENCES authors(author_id),
+                FOREIGN KEY (genre_id) REFERENCES genres(genre_id)
+            )
+        ''')
+
         self.conn.commit()
 
     # Метод для добавления книги в БД
@@ -73,10 +94,31 @@ class BookApp:
 
         if title and author and genre and year:
             cursor = self.conn.cursor()
+
+            # Проверяем, есть ли уже такой автор, если нет — добавляем
+            cursor.execute("SELECT author_id FROM authors WHERE name = ?", (author,))
+            author_id = cursor.fetchone()
+            if author_id is None:
+                cursor.execute("INSERT INTO authors (name) VALUES (?)", (author,))
+                author_id = cursor.lastrowid
+            else:
+                author_id = author_id[0]
+
+            # Проверяем, есть ли уже такой жанр, если нет — добавляем
+            cursor.execute("SELECT genre_id FROM genres WHERE genre_name = ?", (genre,))
+            genre_id = cursor.fetchone()
+            if genre_id is None:
+                cursor.execute("INSERT INTO genres (genre_name) VALUES (?)", (genre,))
+                genre_id = cursor.lastrowid
+            else:
+                genre_id = genre_id[0]
+
+            # Добавляем книгу с author_id и genre_id
             cursor.execute('''
-                INSERT INTO books (title, author, genre, year)
+                INSERT INTO books (title, year, author_id, genre_id)
                 VALUES (?, ?, ?, ?)
-            ''', (title, author, genre, year))
+            ''', (title, year, author_id, genre_id))
+
             self.conn.commit()
             messagebox.showinfo("Success", f"Book '{title}' added successfully!")
             self.clear_entries()
@@ -96,9 +138,13 @@ class BookApp:
 
         if search_term:
             cursor = self.conn.cursor()
+            # Запрос с объединением таблиц
             cursor.execute('''
-                SELECT title, author, genre, year FROM books
-                WHERE title LIKE ? OR author LIKE ?
+                SELECT books.title, books.year, authors.name, genres.genre_name 
+                FROM books
+                JOIN authors ON books.author_id = authors.author_id
+                JOIN genres ON books.genre_id = genres.genre_id
+                WHERE books.title LIKE ? OR authors.name LIKE ?
             ''', (f'%{search_term}%', f'%{search_term}%'))
 
             books = cursor.fetchall()
@@ -107,9 +153,14 @@ class BookApp:
 
             if books:
                 for book in books:
-                    self.result_text.insert(tk.END, f"Title: {book[0]}, Author: {book[1]}, Genre: {book[2]}, Year: {book[3]}\n")
+                    # Вывод данных в столбик
+                    self.result_text.insert(tk.END, f"Title: {book[0]}\n")
+                    self.result_text.insert(tk.END, f"Year: {book[1]}\n")
+                    self.result_text.insert(tk.END, f"Author: {book[2]}\n")
+                    self.result_text.insert(tk.END, f"Genre: {book[3]}\n")
+                    self.result_text.insert(tk.END, "-" * 40 + "\n")  # Разделитель между записями
             else:
-                self.result_text.insert(tk.END, "No books found.")
+                self.result_text.insert(tk.END, "No books found.\n")
         else:
             messagebox.showwarning("Input Error", "Please enter a search term.")
 
